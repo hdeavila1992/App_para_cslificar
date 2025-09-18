@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Definiciones (sin cambios) ---
+# --- Definiciones ---
 componentes_problemas = {
     "C1: Diagrama de cuerpo libre": 25, "C2: Reacciones en los apoyos": 25,
     "C3: Función de singularidad": 25, "C4: Función de carga cortante": 25,
@@ -27,6 +27,7 @@ GRADEBOOK_FILE = "calificaciones_finales.csv"
 
 # --- Función de PDF (sin cambios) ---
 def generar_pdf(datos_estudiante):
+    # (Esta función no necesita cambios, se mantiene igual)
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
@@ -96,62 +97,63 @@ def generar_pdf(datos_estudiante):
     pdf.ln(10)
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 12, f"Puntaje Total: {datos_estudiante['puntaje_total']} / {MAX_SCORE}", 0, 1, "R")
-    pdf.cell(0, 12, f"Calificación Final: {datos_estudiante['calificacion_final']:.2f} / 5.0", 0, 1, "R")
+    pdf.cell(0, 12, f"Calificación Final (Calculada): {datos_estudiante['calificacion_final']:.2f} / 5.0", 0, 1, "R")
     return pdf.output(dest='S').encode('latin-1')
 
-# --- NUEVA FUNCIÓN PARA GUARDAR NOTAS ---
-def guardar_nota(nombres_estudiantes, calificacion_final):
-    """Guarda la calificación final en un archivo CSV (el 'libro de notas')."""
-    # Crear el archivo con encabezados si no existe
+# --- Función de Guardado (sin cambios) ---
+def guardar_nota(lista_estudiantes, calificacion_calculada, calificacion_subjetiva):
+    columnas = ["Estudiante", "Calificacion Calculada", "Calificacion Subjetiva", "Fecha"]
     if not os.path.exists(GRADEBOOK_FILE):
-        df_gradebook = pd.DataFrame(columns=["Estudiantes", "Calificacion Final", "Fecha"])
+        df_gradebook = pd.DataFrame(columns=columnas)
         df_gradebook.to_csv(GRADEBOOK_FILE, index=False)
 
-    # Cargar el libro de notas, agregar la nueva entrada y guardar
     df_gradebook = pd.read_csv(GRADEBOOK_FILE)
-    nueva_nota = pd.DataFrame([{
-        "Estudiantes": nombres_estudiantes,
-        "Calificacion Final": f"{calificacion_final:.2f}",
-        "Fecha": datetime.date.today().strftime('%Y-%m-%d')
-    }])
-    df_gradebook = pd.concat([df_gradebook, nueva_nota], ignore_index=True)
-    df_gradebook.to_csv(GRADEBOOK_FILE, index=False)
+    nuevas_notas_lista = []
+    for estudiante in lista_estudiantes:
+        nuevas_notas_lista.append({
+            "Estudiante": estudiante,
+            "Calificacion Calculada": f"{calificacion_calculada:.2f}",
+            "Calificacion Subjetiva": f"{calificacion_subjetiva:.2f}",
+            "Fecha": datetime.date.today().strftime('%Y-%m-%d')
+        })
+    if nuevas_notas_lista:
+        nuevas_notas_df = pd.DataFrame(nuevas_notas_lista)
+        df_gradebook = pd.concat([df_gradebook, nuevas_notas_df], ignore_index=True)
+        if 'Calificacion Final' in df_gradebook.columns:
+            df_gradebook = df_gradebook.rename(columns={'Calificacion Final': 'Calificacion Calculada'})
+        df_gradebook.to_csv(GRADEBOOK_FILE, index=False)
 
-# --- Interfaz Principal de la Aplicación ---
+# --- Interfaz Principal ---
 st.title("📏 Calificador Avanzado: Taller de Vigas")
 
-# --- PASO 1: Cargar la lista de estudiantes ---
 st.header("1. Cargar la Lista del Curso")
 uploaded_file = st.file_uploader(
-    "Selecciona el archivo CSV con la lista de estudiantes (ej: CURSO_2025_completo.csv)",
-    type=["csv"]
+    "Selecciona el archivo CSV con la lista de estudiantes", type=["csv"]
 )
 
 if uploaded_file is not None:
-    # Leer el archivo y guardarlo en el estado de la sesión para no recargarlo
-    st.session_state.df_students = pd.read_csv(uploaded_file, encoding='latin1')
-    st.success(f"Archivo '{uploaded_file.name}' cargado exitosamente. Se encontraron {len(st.session_state.df_students)} estudiantes.")
+    try:
+        st.session_state.df_students = pd.read_csv(uploaded_file, encoding='latin1')
+        st.success(f"Archivo '{uploaded_file.name}' cargado. Se encontraron {len(st.session_state.df_students)} estudiantes.")
+    except Exception as e:
+        st.error(f"Ocurrió un error al leer el archivo CSV: {e}")
+        st.stop()
 
-    # Inicializar estado de la sesión si es necesario
     if 'calificaciones' not in st.session_state:
         st.session_state.calificaciones = {}
     if 'current_group' not in st.session_state:
         st.session_state.current_group = []
 
-    # --- PASO 2: SELECCIÓN DE ESTUDIANTES ---
     st.header("2. Seleccionar Estudiantes del Grupo")
-    
-    # Asumiendo que la columna de nombres se llama 'NOMBRE COMPLETO'. Ajustar si es necesario.
-    # Por favor, verifica el nombre exacto de la columna en tu archivo CSV.
     try:
         student_list = st.session_state.df_students['NOMBRE COMPLETO'].tolist()
     except KeyError:
-        st.error("Error: No se encontró la columna 'NOMBRE COMPLETO' en el archivo CSV. Por favor, verifica el archivo.")
+        st.error("Error: No se encontró la columna 'NOMBRE COMPLETO' en el archivo CSV.")
         st.stop()
     
     col_select, col_group = st.columns(2)
     with col_select:
-        selected_student = st.selectbox("Elige un estudiante para agregar al grupo:", student_list)
+        selected_student = st.selectbox("Elige un estudiante para agregar:", student_list)
         if st.button("➕ Agregar Estudiante"):
             if selected_student not in st.session_state.current_group:
                 st.session_state.current_group.append(selected_student)
@@ -167,16 +169,13 @@ if uploaded_file is not None:
         else:
             st.write("Aún no se han agregado estudiantes.")
     
-    student_names = ", ".join(st.session_state.current_group)
-
+    student_names_str = ", ".join(st.session_state.current_group)
     st.markdown("---")
 
-    # --- PASO 3: CALIFICACIÓN (Interfaz sin cambios) ---
     st.header("3. Calificación por Componentes")
     col1, col2 = st.columns([0.7, 0.3])
     with col1:
-        # El código de los expanders para calificar va aquí (es idéntico al anterior)
-        with st.expander("**Problemas 1.a al 1.e (Componentes C1 a C7)**", expanded=True):
+        with st.expander("**Problemas 1.a al 1.e**", expanded=True):
              for prob in problemas:
                 st.markdown(f"#### Problema {prob}")
                 for comp_key in componentes_problemas.keys():
@@ -189,10 +188,10 @@ if uploaded_file is not None:
                         )
                     with sub_col2:
                         st.session_state.calificaciones[f"{unique_key}_comment"] = st.text_input(
-                            "Comentario (opcional)", key=f"{unique_key}_comment_input",
+                            "Comentario", key=f"{unique_key}_comment_input",
                             label_visibility="collapsed", placeholder=f"Comentario para {comp_key}"
                         )
-        with st.expander("**Puntos Adicionales (C8 y C9)**", expanded=True):
+        with st.expander("**Puntos Adicionales**", expanded=True):
             for comp_key in componentes_adicionales.keys():
                 unique_key = comp_key
                 st.markdown(f"#### {comp_key}")
@@ -204,29 +203,34 @@ if uploaded_file is not None:
                     )
                 with sub_col2:
                     st.session_state.calificaciones[f"{unique_key}_comment"] = st.text_input(
-                        "Comentario (opcional)", key=f"{unique_key}_comment_input",
+                        "Comentario", key=f"{unique_key}_comment_input",
                         label_visibility="collapsed", placeholder=f"Comentario para {comp_key}"
                     )
         st.header("4. Comentario Final")
         final_comment = st.text_area("Escriba aquí un comentario general (Obligatorio).", height=150)
+        
+        st.header("5. Calificación Subjetiva (Opcional)")
+        subjective_grade = st.number_input(
+            "Ingrese una calificación basada en la apreciación del docente (de 0.0 a 5.0).",
+            min_value=0.0, max_value=5.0, value=3.0, step=0.1
+        )
 
-    # --- PASO 4: BARRA LATERAL CON RESUMEN Y ACCIONES ---
+    # --- BARRA LATERAL ---
     with col2:
         with st.sidebar:
             st.header("Resumen y Acciones")
             total_score = sum(v for k, v in st.session_state.calificaciones.items() if "score" in k)
-            final_grade = (5 * total_score / MAX_SCORE) if MAX_SCORE > 0 else 0
+            calculated_grade = (5 * total_score / MAX_SCORE) if MAX_SCORE > 0 else 0
             st.metric(label="Puntaje Total", value=f"{total_score} / {MAX_SCORE}")
-            st.metric(label="Calificación Final", value=f"{final_grade:.2f} / 5.0")
+            st.metric(label="Calificación Calculada", value=f"{calculated_grade:.2f} / 5.0")
             st.markdown("---")
 
             if st.button("💾 Guardar y Generar Reporte", use_container_width=True, type="primary"):
-                if not student_names.strip():
+                if not st.session_state.current_group:
                     st.error("Agregue al menos un estudiante al grupo.")
                 elif not final_comment.strip():
                     st.error("El comentario final es obligatorio.")
                 else:
-                    # Recopilar datos para el PDF
                     scores_grid = {comp: {} for comp in componentes_problemas.keys()}
                     for comp_key in componentes_problemas.keys():
                         comp_total = 0
@@ -239,24 +243,52 @@ if uploaded_file is not None:
                     comentarios = {k.replace("_comment_input", "").replace("_", " -> "): v for k, v in st.session_state.calificaciones.items() if "comment" in k and v.strip()}
                     
                     datos_estudiante = {
-                        "nombres": student_names, "scores_grid": scores_grid,
+                        "nombres": student_names_str, "scores_grid": scores_grid,
                         "scores_adicionales": scores_adicionales, "comentarios": comentarios,
                         "comentario_final": final_comment, "puntaje_total": total_score,
-                        "calificacion_final": final_grade
+                        "calificacion_final": calculated_grade
                     }
                     
-                    # 1. Guardar la nota en el "libro de notas" CSV
-                    guardar_nota(student_names, final_grade)
-                    st.success(f"¡Calificación guardada en '{GRADEBOOK_FILE}'!")
+                    guardar_nota(st.session_state.current_group, calculated_grade, subjective_grade)
+                    st.success(f"¡Calificaciones guardadas en '{GRADEBOOK_FILE}'!")
 
-                    # 2. Generar y ofrecer descarga del PDF
                     pdf_data = generar_pdf(datos_estudiante)
                     st.download_button(
                         label="📥 Descargar Reporte PDF Individual",
                         data=pdf_data,
-                        file_name=f"calificacion_{student_names.replace(' ', '_').replace(',', '')}.pdf",
+                        file_name=f"calificacion_{student_names_str.replace(' ', '_').replace(',', '')}.pdf",
                         mime="application/pdf",
                         use_container_width=True
                     )
+            
+            st.markdown("---")
+            
+            # --- NUEVA SECCIÓN DE RESET ---
+            st.header("Nueva Calificación")
+            
+            # Usamos el estado de sesión para manejar la confirmación
+            if 'confirm_reset' not in st.session_state:
+                st.session_state.confirm_reset = False
+
+            if st.session_state.confirm_reset:
+                st.warning("**¿Estás seguro de que quieres resetear?** Se perderán todos los datos no guardados.")
+                col_reset_1, col_reset_2 = st.columns(2)
+                with col_reset_1:
+                    if st.button("✅ Sí, resetear", use_container_width=True, type="primary"):
+                        # Lógica de reseteo
+                        st.session_state.calificaciones = {}
+                        st.session_state.current_group = []
+                        st.session_state.confirm_reset = False
+                        st.success("Formulario reseteado.")
+                        st.rerun() # Recargar la app para ver los cambios
+                with col_reset_2:
+                    if st.button("❌ Cancelar", use_container_width=True):
+                        st.session_state.confirm_reset = False
+                        st.rerun()
+            else:
+                if st.button("🔄 Reset Calificación", use_container_width=True):
+                    st.session_state.confirm_reset = True
+                    st.rerun()
+
 else:
     st.info("Por favor, carga el archivo CSV con la lista del curso para comenzar a calificar.")
